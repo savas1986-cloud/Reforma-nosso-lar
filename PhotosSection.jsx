@@ -1,13 +1,15 @@
 import { useRef, useState } from 'react'
-import { Camera, Plus, Trash2, Columns2, ChevronLeft, ChevronRight, Loader2, CalendarDays, ImageOff } from 'lucide-react'
-import { Modal, ConfirmDialog, SectionCard, inputCls, btnPrimary, btnSecondary } from './ui'
+import { Camera, Plus, Trash2, Columns2, ChevronLeft, ChevronRight, Loader2, CalendarDays, ImageOff, History, Sun, Sparkles, ExternalLink } from 'lucide-react'
+import { Modal, ConfirmDialog, SectionCard, Tabs, inputCls, btnPrimary, btnSecondary } from './ui'
 import { compressImage } from './image'
-import { uid, hoje, formatarData, ordenarFotos } from './utils'
+import { uid, hoje, formatarData, ordenarFotos, normalizarLink, identificarLoja } from './utils'
 
 const BLOCOS = [
-  { column: 'fotos_antes', title: 'Como Era (Antes)', tone: 'terracota' },
-  { column: 'fotos_hoje', title: 'Como Está Hoje', tone: 'oliva' },
+  { column: 'fotos_antes', title: 'Como Era (Antes)', aba: 'Antes', icon: History, tone: 'terracota' },
+  { column: 'fotos_hoje', title: 'Como Está Hoje', aba: 'Hoje', icon: Sun, tone: 'oliva' },
+  { column: 'fotos_inspiracao', title: 'Inspirações da Internet', aba: 'Inspirações', icon: Sparkles, tone: 'amber' },
 ]
+const TITULO = Object.fromEntries(BLOCOS.map((b) => [b.column, b.title]))
 
 export default function PhotosSection({ comodo, mutateArray }) {
   const [novaFoto, setNovaFoto] = useState(null) // { column, src }
@@ -16,6 +18,7 @@ export default function PhotosSection({ comodo, mutateArray }) {
   const [confirmDel, setConfirmDel] = useState(false)
   const [comparar, setComparar] = useState(false)
   const [erro, setErro] = useState('')
+  const [aba, setAba] = useState('fotos_antes')
 
   const handleFile = async (column, file) => {
     if (!file) return
@@ -31,9 +34,10 @@ export default function PhotosSection({ comodo, mutateArray }) {
     }
   }
 
-  const salvarFoto = ({ legenda, data }) => {
+  const salvarFoto = ({ legenda, data, link }) => {
     const { column, src } = novaFoto
     const foto = { id: uid(), src, legenda: legenda.trim(), data, criada_em: new Date().toISOString() }
+    if (link) foto.link = normalizarLink(link)
     setNovaFoto(null)
     mutateArray(comodo.id, column, (arr) => [...arr, foto]).catch(() => {})
   }
@@ -61,27 +65,32 @@ export default function PhotosSection({ comodo, mutateArray }) {
 
       {erro && <p className="mb-3 rounded-xl bg-terracota-50 px-4 py-3 text-sm font-semibold text-terracota-700">{erro}</p>}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {BLOCOS.map((b) => (
-          <PhotoBlock
-            key={b.column}
-            {...b}
-            fotos={ordenarFotos(comodo[b.column])}
-            processando={processando === b.column}
-            onFile={(f) => handleFile(b.column, f)}
-            onOpen={(foto) => setViewer({ column: b.column, foto })}
-          />
-        ))}
-      </div>
+      <Tabs
+        className="mb-3"
+        value={aba}
+        onChange={setAba}
+        tabs={BLOCOS.map((b) => ({ id: b.column, label: b.aba, icon: b.icon, count: comodo[b.column].length }))}
+      />
+
+      {BLOCOS.filter((b) => b.column === aba).map((b) => (
+        <PhotoBlock
+          key={b.column}
+          {...b}
+          fotos={ordenarFotos(comodo[b.column])}
+          processando={processando === b.column}
+          onFile={(f) => handleFile(b.column, f)}
+          onOpen={(foto) => setViewer({ column: b.column, foto })}
+        />
+      ))}
 
       <AddPhotoModal novaFoto={novaFoto} onClose={() => setNovaFoto(null)} onSave={salvarFoto} />
 
       {/* Foto ampliada */}
-      <Modal open={!!viewer} onClose={() => setViewer(null)} title={viewer?.column === 'fotos_antes' ? 'Como Era (Antes)' : 'Como Está Hoje'} wide dark>
+      <Modal open={!!viewer} onClose={() => setViewer(null)} title={TITULO[viewer?.column] || 'Foto'} wide dark>
         {viewer && (
           <div>
             <img src={viewer.foto.src} alt={viewer.foto.legenda || 'Foto'} className="mx-auto max-h-[62vh] w-auto rounded-2xl object-contain" />
-            <div className="mt-4 flex items-end justify-between gap-3">
+            <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
               <div className="min-w-0">
                 {viewer.foto.legenda && <p className="font-bold">{viewer.foto.legenda}</p>}
                 {viewer.foto.data && (
@@ -90,9 +99,16 @@ export default function PhotosSection({ comodo, mutateArray }) {
                   </p>
                 )}
               </div>
+              <div className="flex shrink-0 gap-2">
+              {viewer.foto.link && (
+                <a href={viewer.foto.link} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[48px] items-center gap-2 rounded-2xl bg-white/10 px-4 font-bold text-white active:scale-95">
+                  <ExternalLink className="h-5 w-5" /> {identificarLoja(viewer.foto.link).nome}
+                </a>
+              )}
               <button onClick={() => setConfirmDel(true)} className="inline-flex min-h-[48px] shrink-0 items-center gap-2 rounded-2xl bg-terracota-600 px-4 font-bold text-white active:scale-95">
                 <Trash2 className="h-5 w-5" /> Excluir
               </button>
+              </div>
             </div>
           </div>
         )}
@@ -113,7 +129,7 @@ export default function PhotosSection({ comodo, mutateArray }) {
 
 function PhotoBlock({ title, tone, fotos, processando, onFile, onOpen }) {
   const inputRef = useRef(null)
-  const dot = tone === 'oliva' ? 'bg-oliva-600' : 'bg-terracota-600'
+  const dot = tone === 'oliva' ? 'bg-oliva-600' : tone === 'amber' ? 'bg-amber-500' : 'bg-terracota-600'
 
   return (
     <div className="rounded-2xl bg-creme p-3 ring-1 ring-stone-100">
@@ -164,28 +180,39 @@ function PhotoBlock({ title, tone, fotos, processando, onFile, onOpen }) {
 function AddPhotoModal({ novaFoto, onClose, onSave }) {
   const [legenda, setLegenda] = useState('')
   const [data, setData] = useState(hoje())
+  const [link, setLink] = useState('')
+  const inspiracao = novaFoto?.column === 'fotos_inspiracao'
 
-  const fechar = () => {
+  const limpar = () => {
     setLegenda('')
     setData(hoje())
+    setLink('')
+  }
+  const fechar = () => {
+    limpar()
     onClose()
   }
   const salvar = (e) => {
     e.preventDefault()
-    onSave({ legenda, data: data || hoje() })
-    setLegenda('')
-    setData(hoje())
+    onSave({ legenda, data: data || hoje(), link: inspiracao ? link.trim() : '' })
+    limpar()
   }
 
   return (
-    <Modal open={!!novaFoto} onClose={fechar} title={novaFoto?.column === 'fotos_antes' ? 'Foto de antes' : 'Foto de hoje'}>
+    <Modal open={!!novaFoto} onClose={fechar} title={novaFoto?.column === 'fotos_antes' ? 'Foto de antes' : inspiracao ? 'Nova inspiração' : 'Foto de hoje'}>
       {novaFoto && (
         <form onSubmit={salvar} className="space-y-4">
           <img src={novaFoto.src} alt="Pré-visualização" className="max-h-72 w-full rounded-2xl bg-stone-100 object-contain" />
           <div>
             <label className="mb-1.5 block text-sm font-bold text-stone-700">Legenda</label>
-            <input className={inputCls} value={legenda} onChange={(e) => setLegenda(e.target.value)} placeholder="Ex.: Parede da pia" />
+            <input className={inputCls} value={legenda} onChange={(e) => setLegenda(e.target.value)} placeholder={inspiracao ? 'Ex.: Cozinha verde com madeira' : 'Ex.: Parede da pia'} />
           </div>
+          {inspiracao && (
+            <div>
+              <label className="mb-1.5 block text-sm font-bold text-stone-700">Link de origem ou da loja (opcional)</label>
+              <input type="text" inputMode="url" autoCapitalize="none" className={inputCls} value={link} onChange={(e) => setLink(e.target.value)} placeholder="Pinterest, Instagram, loja..." />
+            </div>
+          )}
           <div>
             <label className="mb-1.5 block text-sm font-bold text-stone-700">Data</label>
             <input type="date" className={inputCls} value={data} onChange={(e) => setData(e.target.value)} />

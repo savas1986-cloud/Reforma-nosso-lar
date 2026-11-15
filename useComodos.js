@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase, TABLE } from './supabase'
 
 const SEED = [
-  { nome: 'Cozinha', status: 'Planejando', notas: '', fotos_antes: [], fotos_hoje: [], ideias: [] },
-  { nome: 'Sala de Estar', status: 'Planejando', notas: '', fotos_antes: [], fotos_hoje: [], ideias: [] },
-  { nome: 'Quarto Principal', status: 'Planejando', notas: '', fotos_antes: [], fotos_hoje: [], ideias: [] },
+  { nome: 'Cozinha', status: 'Planejando', notas: '', fotos_antes: [], fotos_hoje: [], ideias: [], itens: [], fotos_inspiracao: [] },
+  { nome: 'Sala de Estar', status: 'Planejando', notas: '', fotos_antes: [], fotos_hoje: [], ideias: [], itens: [], fotos_inspiracao: [] },
+  { nome: 'Quarto Principal', status: 'Planejando', notas: '', fotos_antes: [], fotos_hoje: [], ideias: [], itens: [], fotos_inspiracao: [] },
 ]
 
 const arr = (v) => (Array.isArray(v) ? v : [])
@@ -16,6 +16,8 @@ const norm = (r) => ({
   fotos_antes: arr(r.fotos_antes),
   fotos_hoje: arr(r.fotos_hoje),
   ideias: arr(r.ideias),
+  itens: arr(r.itens),
+  fotos_inspiracao: arr(r.fotos_inspiracao),
 })
 const byCreated = (a, b) => String(a.created_at || '').localeCompare(String(b.created_at || ''))
 
@@ -122,7 +124,7 @@ export function useComodos() {
   }, [track])
 
   /**
-   * Altera um array JSON (fotos_antes, fotos_hoje, ideias) de forma segura:
+   * Altera um array JSON (fotos_antes, fotos_hoje, fotos_inspiracao, ideias, itens) de forma segura:
    * aplica na tela na hora, depois lê a versão mais recente do banco e aplica a mesma
    * alteração por cima — assim, se vocês dois mexerem ao mesmo tempo, nada se perde.
    */
@@ -141,7 +143,7 @@ export function useComodos() {
     track(async () => {
       const { data, error } = await supabase
         .from(TABLE)
-        .insert({ nome, status, notas: '', fotos_antes: [], fotos_hoje: [], ideias: [] })
+        .insert({ nome, status, notas: '', fotos_antes: [], fotos_hoje: [], ideias: [], itens: [], fotos_inspiracao: [] })
         .select()
         .single()
       if (error) throw error

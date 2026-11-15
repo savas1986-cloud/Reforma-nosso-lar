@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Plus, Lightbulb, CheckCircle2, LayoutGrid, Home as HomeIcon, Camera } from 'lucide-react'
-import { StatusBadge, SyncBadge, iconeDoComodo, Modal, inputCls, btnPrimary, STATUS, STATUS_STYLE } from './ui'
-import { fotoMaisRecente } from './utils'
+import { Plus, Lightbulb, CheckCircle2, LayoutGrid, Home as HomeIcon, Camera, Wallet, Heart } from 'lucide-react'
+import { StatusBadge, SyncBadge, BudgetSummary, iconeDoComodo, Modal, inputCls, btnPrimary, STATUS, STATUS_STYLE } from './ui'
+import { SettingsButton } from './settings.jsx'
+import { fotoMaisRecente, somarOrcamento, formatarBRL } from './utils'
 
 const SUGESTOES = ['Banheiro', 'Lavanderia', 'Varanda', 'Escritório', 'Quarto de Hóspedes', 'Área Externa']
 
@@ -12,6 +13,7 @@ export default function Home({ comodos, loading, syncState, onRetry, onOpen, onA
   const feitas = comodos.reduce((s, c) => s + c.ideias.filter((i) => i.feita).length, 0)
   const pendentes = totalIdeias - feitas
   const progresso = totalIdeias ? Math.round((feitas / totalIdeias) * 100) : 0
+  const orcamento = somarOrcamento(comodos.flatMap((c) => c.itens))
 
   return (
     <div className="mx-auto max-w-5xl px-4 pb-28 pt-[max(1.25rem,env(safe-area-inset-top))] sm:px-6">
@@ -23,10 +25,10 @@ export default function Home({ comodos, loading, syncState, onRetry, onOpen, onA
             </div>
             <div className="min-w-0">
               <h1 className="whitespace-nowrap text-[1.4rem] font-extrabold leading-tight tracking-tight text-stone-800 sm:text-2xl">Nossa Reforma</h1>
-              <p className="truncate text-sm text-stone-500">Um cantinho de cada vez 🌿</p>
+              <div className="mt-1"><SyncBadge state={syncState} onRetry={onRetry} /></div>
             </div>
           </div>
-          <div className="shrink-0"><SyncBadge state={syncState} onRetry={onRetry} /></div>
+          <SettingsButton className="shrink-0" />
         </div>
 
         <div className="grid grid-cols-3 gap-2.5 sm:gap-4">
@@ -34,6 +36,12 @@ export default function Home({ comodos, loading, syncState, onRetry, onOpen, onA
           <Stat icon={Lightbulb} value={pendentes} label="Ideias pendentes" tone="terracota" />
           <Stat icon={CheckCircle2} value={feitas} label="Ideias feitas" tone="oliva" />
         </div>
+
+        {(orcamento.estimado > 0 || orcamento.gasto > 0) && (
+          <div className="mt-4 rounded-2xl bg-white p-1.5 shadow-suave">
+            <BudgetSummary estimado={orcamento.estimado} gasto={orcamento.gasto} titulo="Orçamento da casa toda" />
+          </div>
+        )}
 
         {totalIdeias > 0 && (
           <div className="mt-4 rounded-2xl bg-white p-4 shadow-suave">
@@ -113,7 +121,9 @@ function RoomCard({ comodo, onClick }) {
   const Icon = iconeDoComodo(comodo.nome)
   const total = comodo.ideias.length
   const feitas = comodo.ideias.filter((i) => i.feita).length
-  const nFotos = comodo.fotos_antes.length + comodo.fotos_hoje.length
+  const nFotos = comodo.fotos_antes.length + comodo.fotos_hoje.length + comodo.fotos_inspiracao.length
+  const { estimado, gasto } = somarOrcamento(comodo.itens)
+  const aprovados = comodo.ideias.filter((i) => i.aprovado).length + comodo.itens.filter((i) => i.aprovado).length
 
   return (
     <button
@@ -146,6 +156,22 @@ function RoomCard({ comodo, onClick }) {
             </span>
           )}
         </div>
+        {(estimado > 0 || gasto > 0 || aprovados > 0) && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-stone-500">
+            {(estimado > 0 || gasto > 0) && (
+              <span className="inline-flex items-center gap-1.5">
+                <Wallet className="h-4 w-4 text-oliva-600" />
+                <b className={estimado > 0 && gasto > estimado ? 'text-terracota-700' : 'text-oliva-700'}>{formatarBRL(gasto)}</b>
+                {estimado > 0 && <span>de {formatarBRL(estimado)}</span>}
+              </span>
+            )}
+            {aprovados > 0 && (
+              <span className="inline-flex items-center gap-1 text-terracota-700">
+                <Heart className="h-3.5 w-3.5" fill="currentColor" /> <b>{aprovados}</b>
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </button>
   )

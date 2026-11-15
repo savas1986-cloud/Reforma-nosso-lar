@@ -1,4 +1,6 @@
 import { useEffect } from 'react'
+import { Heart, Wallet } from 'lucide-react'
+import { formatarBRL } from './utils'
 import {
   X, Loader2, Check, CloudOff, AlertTriangle, RefreshCw,
   ChefHat, Sofa, BedDouble, Bath, WashingMachine, Trees, Laptop, Home, Baby, Car, Utensils, DoorOpen,
@@ -147,5 +149,112 @@ export function SectionCard({ icon: Icon, title, subtitle, action, children }) {
       </div>
       {children}
     </section>
+  )
+}
+
+/** Botão de aprovação do casal: "Aprovado pelos dois" / "Em análise" */
+export function ApprovalButton({ aprovado, onToggle, className = '' }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={!!aprovado}
+      className={`inline-flex min-h-[34px] items-center gap-1.5 rounded-full px-3 text-xs font-bold ring-1 transition active:scale-95 ${
+        aprovado ? 'bg-terracota-50 text-terracota-700 ring-terracota-200' : 'bg-white text-stone-500 ring-stone-200 hover:bg-stone-50'
+      } ${className}`}
+    >
+      <Heart className="h-3.5 w-3.5" fill={aprovado ? 'currentColor' : 'none'} />
+      {aprovado ? 'Aprovado pelos dois' : 'Em análise'}
+    </button>
+  )
+}
+
+/** Filtro de aprovação (Todos / Aprovados / Em análise) */
+export const FILTROS_APROVACAO = ['Todos', 'Aprovados', 'Em análise']
+export const passaAprovacao = (obj, filtro) =>
+  filtro === 'Aprovados' ? !!obj.aprovado : filtro === 'Em análise' ? !obj.aprovado : true
+
+export function ApprovalFilter({ value, onChange, counts }) {
+  return (
+    <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+      {FILTROS_APROVACAO.map((f) => (
+        <button
+          key={f}
+          onClick={() => onChange(f)}
+          className={`inline-flex min-h-[34px] shrink-0 items-center gap-1 rounded-full px-3 text-xs font-bold ring-1 transition ${
+            value === f ? 'bg-terracota-600 text-white ring-terracota-600' : 'bg-white text-stone-500 ring-stone-200'
+          }`}
+        >
+          {f === 'Aprovados' && <Heart className="h-3 w-3" fill="currentColor" />}
+          {f} {counts && <span className="opacity-70">{counts[f]}</span>}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Abas roláveis (pílulas) */
+export function Tabs({ tabs, value, onChange, className = '' }) {
+  return (
+    <div className={`no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 ${className}`} role="tablist">
+      {tabs.map(({ id, label, icon: Icon, count }) => (
+        <button
+          key={id}
+          role="tab"
+          aria-selected={value === id}
+          onClick={() => onChange(id)}
+          className={`inline-flex min-h-[42px] shrink-0 items-center gap-1.5 rounded-full px-4 text-sm font-bold transition ${
+            value === id ? 'bg-oliva-600 text-white shadow-sm' : 'bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50'
+          }`}
+        >
+          {Icon && <Icon className="h-4 w-4" />}
+          {label}
+          {count > 0 && (
+            <span className={`rounded-full px-1.5 text-xs ${value === id ? 'bg-white/20' : 'bg-stone-100 text-stone-500'}`}>{count}</span>
+          )}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Orçamento estimado x gasto, com barra de progresso */
+export function BudgetSummary({ estimado, gasto, titulo = 'Orçamento', vazio }) {
+  if (!estimado && !gasto) {
+    return vazio ? (
+      <div className="flex items-center gap-3 rounded-2xl bg-creme px-4 py-3 text-sm text-stone-500 ring-1 ring-stone-100">
+        <Wallet className="h-5 w-5 shrink-0 text-oliva-600" /> {vazio}
+      </div>
+    ) : null
+  }
+  const pct = estimado ? Math.min(100, Math.round((gasto / estimado) * 100)) : 100
+  const saldo = estimado - gasto
+  const estourou = estimado > 0 && saldo < 0
+  return (
+    <div className="rounded-2xl bg-creme p-4 ring-1 ring-stone-100">
+      <p className="mb-2 flex items-center gap-2 text-sm font-bold text-stone-700">
+        <Wallet className="h-4 w-4 text-oliva-600" /> {titulo}
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <p className="text-xs font-semibold text-stone-500">Orçamento Estimado Total</p>
+          <p className="text-lg font-extrabold text-stone-800">{formatarBRL(estimado)}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-stone-500">Total já Gasto</p>
+          <p className={`text-lg font-extrabold ${estourou ? 'text-terracota-700' : 'text-oliva-700'}`}>{formatarBRL(gasto)}</p>
+        </div>
+      </div>
+      {estimado > 0 && (
+        <>
+          <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-stone-200/70">
+            <div className={`h-full rounded-full transition-all duration-500 ${estourou ? 'bg-terracota-600' : 'bg-oliva-600'}`} style={{ width: `${pct}%` }} />
+          </div>
+          <p className={`mt-1.5 text-xs font-bold ${estourou ? 'text-terracota-700' : 'text-stone-500'}`}>
+            {estourou ? `${formatarBRL(-saldo)} acima do estimado` : `Restam ${formatarBRL(saldo)} · ${pct}% usado`}
+          </p>
+        </>
+      )}
+    </div>
   )
 }

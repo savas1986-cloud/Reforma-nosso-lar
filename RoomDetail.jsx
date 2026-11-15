@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Trash2, NotebookPen } from 'lucide-react'
-import { SyncBadge, ConfirmDialog, STATUS, STATUS_STYLE, STATUS_DOT, inputCls, iconeDoComodo } from './ui'
+import { ArrowLeft, Trash2, NotebookPen, Camera, Lightbulb, Package } from 'lucide-react'
+import { SyncBadge, ConfirmDialog, Tabs, BudgetSummary, STATUS, STATUS_STYLE, STATUS_DOT, inputCls, iconeDoComodo } from './ui'
+import { SettingsButton } from './settings.jsx'
+import { somarOrcamento } from './utils'
 import PhotosSection from './PhotosSection'
 import IdeasSection from './IdeasSection'
+import ItemsSection from './ItemsSection'
 
 /** Campo com salvamento automático: digita à vontade, salva ~0,7s depois de parar (ou ao sair do campo). */
 function useAutosave(serverValue, save, delay = 700) {
@@ -50,31 +53,50 @@ function useAutosave(serverValue, save, delay = 700) {
   }
 }
 
+let ultimaAba = 'fotos' // lembra a última aba aberta entre um cômodo e outro
+
 export default function RoomDetail({ comodo, syncState, onRetry, onBack, updateFields, mutateArray, deleteComodo }) {
   const [confirmDel, setConfirmDel] = useState(false)
+  const [aba, setAbaState] = useState(ultimaAba)
+  const setAba = (a) => {
+    ultimaAba = a
+    setAbaState(a)
+  }
   const nome = useAutosave(comodo.nome, (v) => updateFields(comodo.id, { nome: v.trim() || 'Sem nome' }).catch(() => {}))
   const notas = useAutosave(comodo.notas, (v) => updateFields(comodo.id, { notas: v }).catch(() => {}), 900)
   const Icon = iconeDoComodo(comodo.nome)
+  const { estimado, gasto } = somarOrcamento(comodo.itens)
+
+  const nFotos = comodo.fotos_antes.length + comodo.fotos_hoje.length + comodo.fotos_inspiracao.length
+  const ideiasPendentes = comodo.ideias.filter((i) => !i.feita).length
+  const abas = [
+    { id: 'fotos', label: 'Fotos', icon: Camera, count: nFotos },
+    { id: 'ideias', label: 'Ideias', icon: Lightbulb, count: ideiasPendentes },
+    { id: 'itens', label: 'Itens & Medidas', icon: Package, count: comodo.itens.length },
+    { id: 'notas', label: 'Notas', icon: NotebookPen, count: comodo.notas?.trim() ? 1 : 0 },
+  ]
 
   return (
     <div className="mx-auto max-w-3xl pb-16">
-      {/* Barra superior fixa */}
+      {/* Barra superior fixa com abas */}
       <div className="sticky top-0 z-20 border-b border-stone-200/60 bg-creme/90 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur sm:px-6">
         <div className="flex items-center justify-between gap-2">
           <button onClick={onBack} className="-ml-2 inline-flex min-h-[44px] items-center gap-1.5 rounded-2xl px-3 font-bold text-stone-700 hover:bg-stone-100 active:scale-95">
             <ArrowLeft className="h-5 w-5" /> Voltar
           </button>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
             <SyncBadge state={syncState} onRetry={onRetry} />
-            <button onClick={() => setConfirmDel(true)} className="grid h-11 w-11 place-items-center rounded-2xl text-stone-400 hover:bg-terracota-50 hover:text-terracota-700" aria-label="Excluir cômodo">
+            <SettingsButton />
+            <button onClick={() => setConfirmDel(true)} className="grid h-10 w-10 place-items-center rounded-full text-stone-400 hover:bg-terracota-50 hover:text-terracota-700" aria-label="Excluir cômodo">
               <Trash2 className="h-5 w-5" />
             </button>
           </div>
         </div>
+        <Tabs className="mt-2" tabs={abas} value={aba} onChange={setAba} />
       </div>
 
       <div className="space-y-4 px-4 pt-4 sm:px-6">
-        {/* Dados do cômodo */}
+        {/* Dados do cômodo + orçamento */}
         <section className="rounded-3xl bg-white p-4 shadow-suave sm:p-6">
           <div className="mb-4 flex items-center gap-3">
             <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-oliva-50 text-oliva-700">
@@ -88,8 +110,7 @@ export default function RoomDetail({ comodo, syncState, onRetry, onBack, updateF
             />
           </div>
 
-          <p className="mb-1.5 text-sm font-bold text-stone-700">Status</p>
-          <div className="mb-5 grid grid-cols-3 gap-2">
+          <div className="mb-4 grid grid-cols-3 gap-2">
             {STATUS.map((s) => (
               <button
                 key={s}
@@ -102,25 +123,37 @@ export default function RoomDetail({ comodo, syncState, onRetry, onBack, updateF
             ))}
           </div>
 
-          <label className="mb-1.5 flex items-center gap-2 text-sm font-bold text-stone-700">
-            <NotebookPen className="h-4 w-4 text-oliva-600" /> Notas gerais
-          </label>
-          <textarea
-            {...notas}
-            className={`${inputCls} min-h-[110px] resize-y leading-relaxed`}
-            placeholder="Medidas, orçamentos, contato do pedreiro, cores escolhidas..."
+          <BudgetSummary
+            estimado={estimado}
+            gasto={gasto}
+            titulo="Orçamento do cômodo"
+            vazio={<span>Coloque valores nos itens da aba <button className="font-bold text-oliva-700 underline" onClick={() => setAba('itens')}>Itens & Medidas</button> para ver o orçamento aqui.</span>}
           />
-          <p className="mt-1.5 text-xs text-stone-400">Salva sozinho enquanto vocês escrevem.</p>
         </section>
 
-        <PhotosSection comodo={comodo} mutateArray={mutateArray} />
-        <IdeasSection comodo={comodo} mutateArray={mutateArray} />
+        {aba === 'fotos' && <PhotosSection comodo={comodo} mutateArray={mutateArray} />}
+        {aba === 'ideias' && <IdeasSection comodo={comodo} mutateArray={mutateArray} />}
+        {aba === 'itens' && <ItemsSection comodo={comodo} mutateArray={mutateArray} />}
+        {aba === 'notas' && (
+          <section className="rounded-3xl bg-white p-4 shadow-suave sm:p-6">
+            <label className="mb-1.5 flex items-center gap-2 text-lg font-extrabold text-stone-800">
+              <NotebookPen className="h-5 w-5 text-oliva-600" /> Notas gerais
+            </label>
+            <p className="mb-3 text-sm text-stone-500">O consultor de IA também lê estas notas para sugerir ideias.</p>
+            <textarea
+              {...notas}
+              className={`${inputCls} min-h-[200px] resize-y leading-relaxed`}
+              placeholder="Medidas, orçamentos, contato do pedreiro, cores escolhidas, estilo que vocês gostam..."
+            />
+            <p className="mt-1.5 text-xs text-stone-400">Salva sozinho enquanto vocês escrevem.</p>
+          </section>
+        )}
       </div>
 
       <ConfirmDialog
         open={confirmDel}
         title={`Excluir "${comodo.nome}"?`}
-        message="Todas as fotos, notas e ideias deste cômodo serão apagadas para vocês dois. Essa ação não pode ser desfeita."
+        message="Todas as fotos, notas, ideias e itens deste cômodo serão apagados para vocês dois. Essa ação não pode ser desfeita."
         confirmText="Excluir cômodo"
         onCancel={() => setConfirmDel(false)}
         onConfirm={() => {

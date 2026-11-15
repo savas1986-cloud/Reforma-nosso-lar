@@ -1,10 +1,13 @@
 import { useMemo, useState } from 'react'
 import {
-  Lightbulb, Plus, Check, Pencil, Trash2, ExternalLink, X,
+  Lightbulb, Plus, Check, Pencil, Trash2, ExternalLink, X, Sparkles, Loader2, RefreshCw, ShoppingBag, Info,
   Paintbrush, Armchair, Lamp, Hammer, Flower2,
 } from 'lucide-react'
-import { SectionCard, ConfirmDialog, inputCls, btnPrimary, btnSecondary } from './ui'
-import { uid, normalizarLink } from './utils'
+import { SectionCard, ConfirmDialog, ApprovalButton, ApprovalFilter, passaAprovacao, inputCls, btnPrimary, btnSecondary } from './ui'
+import { MoneyInput } from './ItemsSection'
+import { uid, normalizarLink, formatarBRL, parseValor, valorParaInput, identificarLoja } from './utils'
+import { gerarSugestoes } from './ai'
+import { useGeminiKey } from './settings.jsx'
 
 export const CATEGORIAS = [
   { nome: 'Pintura', icon: Paintbrush },
@@ -22,33 +25,43 @@ const PRIO_STYLE = {
   Baixa: 'bg-stone-100 text-stone-600 ring-stone-200',
 }
 const PRIO_ORDER = { Alta: 0, Média: 1, Baixa: 2 }
-
 const FILTROS = ['Todas', 'Pendentes', 'Feitas']
 
 export default function IdeasSection({ comodo, mutateArray }) {
   const [formOpen, setFormOpen] = useState(false)
   const [editId, setEditId] = useState(null)
   const [filtro, setFiltro] = useState('Todas')
+  const [aprov, setAprov] = useState('Todos')
   const [delId, setDelId] = useState(null)
 
   const ideias = comodo.ideias
   const feitas = ideias.filter((i) => i.feita).length
   const contagem = { Todas: ideias.length, Pendentes: ideias.length - feitas, Feitas: feitas }
 
-  const lista = useMemo(() => {
-    const f = ideias.filter((i) => (filtro === 'Pendentes' ? !i.feita : filtro === 'Feitas' ? i.feita : true))
-    return f.sort(
-      (a, b) =>
-        Number(!!a.feita) - Number(!!b.feita) ||
-        (PRIO_ORDER[a.prioridade] ?? 1) - (PRIO_ORDER[b.prioridade] ?? 1) ||
-        String(b.criada_em || '').localeCompare(String(a.criada_em || ''))
-    )
-  }, [ideias, filtro])
+  const porStatus = ideias.filter((i) => (filtro === 'Pendentes' ? !i.feita : filtro === 'Feitas' ? i.feita : true))
+  const contagemAprov = {
+    Todos: porStatus.length,
+    Aprovados: porStatus.filter((i) => i.aprovado).length,
+    'Em análise': porStatus.filter((i) => !i.aprovado).length,
+  }
+
+  const lista = useMemo(
+    () =>
+      porStatus
+        .filter((i) => passaAprovacao(i, aprov))
+        .sort(
+          (a, b) =>
+            Number(!!a.feita) - Number(!!b.feita) ||
+            (PRIO_ORDER[a.prioridade] ?? 1) - (PRIO_ORDER[b.prioridade] ?? 1) ||
+            String(b.criada_em || '').localeCompare(String(a.criada_em || ''))
+        ),
+    [porStatus, aprov]
+  )
 
   const mut = (fn) => mutateArray(comodo.id, 'ideias', fn).catch(() => {})
 
   const adicionar = (dados) => {
-    const ideia = { id: uid(), ...dados, feita: false, criada_em: new Date().toISOString() }
+    const ideia = { id: uid(), ...dados, feita: false, aprovado: false, criada_em: new Date().toISOString() }
     mut((arr) => [...arr, ideia])
     setFormOpen(false)
   }
@@ -57,6 +70,7 @@ export default function IdeasSection({ comodo, mutateArray }) {
     setEditId(null)
   }
   const alternar = (id) => mut((arr) => arr.map((i) => (i.id === id ? { ...i, feita: !i.feita } : i)))
+  const alternarAprovacao = (id) => mut((arr) => arr.map((i) => (i.id === id ? { ...i, aprovado: !i.aprovado } : i)))
   const excluir = () => {
     const id = delId
     setDelId(null)
@@ -69,25 +83,30 @@ export default function IdeasSection({ comodo, mutateArray }) {
       title="Sugestões e Ideias"
       subtitle={ideias.length ? `${feitas} de ${ideias.length} concluídas` : 'O que vamos fazer aqui?'}
     >
+      <AIAssistant comodo={comodo} onSalvar={(s) => adicionar({ ...s, link: '', preco: null, origem: 'ia' })} />
+
       {formOpen ? (
         <IdeaForm onCancel={() => setFormOpen(false)} onSave={adicionar} />
       ) : (
-        <button onClick={() => { setFormOpen(true); setEditId(null) }} className={`${btnPrimary} mb-4 w-full !bg-terracota-600 hover:!bg-terracota-700`}>
+        <button onClick={() => { setFormOpen(true); setEditId(null) }} className={`${btnPrimary} mb-4 w-full`}>
           <Plus className="h-5 w-5" /> Nova ideia
         </button>
       )}
 
       {ideias.length > 0 && (
-        <div className="mb-4 grid grid-cols-3 gap-1 rounded-2xl bg-stone-100 p-1">
-          {FILTROS.map((f) => (
-            <button
-              key={f}
-              onClick={() => setFiltro(f)}
-              className={`min-h-[40px] rounded-xl text-sm font-bold transition ${filtro === f ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500'}`}
-            >
-              {f} <span className="text-stone-400">{contagem[f]}</span>
-            </button>
-          ))}
+        <div className="mb-4 space-y-2">
+          <div className="grid grid-cols-3 gap-1 rounded-2xl bg-stone-100 p-1">
+            {FILTROS.map((f) => (
+              <button
+                key={f}
+                onClick={() => setFiltro(f)}
+                className={`min-h-[40px] rounded-xl text-sm font-bold transition ${filtro === f ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500'}`}
+              >
+                {f} <span className="text-stone-400">{contagem[f]}</span>
+              </button>
+            ))}
+          </div>
+          <ApprovalFilter value={aprov} onChange={setAprov} counts={contagemAprov} />
         </div>
       )}
 
@@ -95,14 +114,12 @@ export default function IdeasSection({ comodo, mutateArray }) {
         <div className="rounded-2xl border border-dashed border-stone-200 py-10 text-center text-stone-400">
           <Lightbulb className="mx-auto mb-2 h-8 w-8" />
           <p className="font-semibold">Nenhuma ideia ainda.</p>
-          <p className="text-sm">Que tal começar pela cor das paredes?</p>
+          <p className="text-sm">Que tal pedir sugestões para a IA? ✨</p>
         </div>
       )}
 
       {ideias.length > 0 && lista.length === 0 && (
-        <p className="py-6 text-center text-sm font-semibold text-stone-400">
-          {filtro === 'Feitas' ? 'Nada concluído ainda — bora! 💪' : 'Tudo feito por aqui! 🎉'}
-        </p>
+        <p className="py-6 text-center text-sm font-semibold text-stone-400">Nenhuma ideia neste filtro.</p>
       )}
 
       <ul className="space-y-2.5">
@@ -116,6 +133,7 @@ export default function IdeasSection({ comodo, mutateArray }) {
               key={i.id}
               ideia={i}
               onToggle={() => alternar(i.id)}
+              onApprove={() => alternarAprovacao(i.id)}
               onEdit={() => { setEditId(i.id); setFormOpen(false) }}
               onDelete={() => setDelId(i.id)}
             />
@@ -123,18 +141,147 @@ export default function IdeasSection({ comodo, mutateArray }) {
         )}
       </ul>
 
-      <ConfirmDialog
-        open={!!delId}
-        title="Excluir ideia?"
-        message="Essa ideia será removida para vocês dois."
-        onCancel={() => setDelId(null)}
-        onConfirm={excluir}
-      />
+      <ConfirmDialog open={!!delId} title="Excluir ideia?" message="Essa ideia será removida para vocês dois." onCancel={() => setDelId(null)} onConfirm={excluir} />
     </SectionCard>
   )
 }
 
-function IdeaItem({ ideia, onToggle, onEdit, onDelete }) {
+// ------------------------------------------------------------- Consultor de IA
+
+function AIAssistant({ comodo, onSalvar }) {
+  const key = useGeminiKey()
+  const [estado, setEstado] = useState('fechado') // fechado | carregando | pronto
+  const [res, setRes] = useState(null)
+  const [salvas, setSalvas] = useState({})
+
+  const gerar = async () => {
+    setEstado('carregando')
+    setSalvas({})
+    const r = await gerarSugestoes(comodo)
+    setRes(r)
+    setEstado('pronto')
+  }
+
+  if (estado === 'fechado') {
+    return (
+      <button
+        onClick={gerar}
+        className="mb-3 inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-terracota-600 to-oliva-600 px-5 font-extrabold text-white shadow-md shadow-terracota-600/20 transition active:scale-[.98]"
+      >
+        <Sparkles className="h-5 w-5" /> Gerar Sugestões com IA
+      </button>
+    )
+  }
+
+  return (
+    <div className="mb-4 rounded-2xl bg-gradient-to-br from-terracota-50 via-white to-oliva-50 p-3 ring-1 ring-terracota-100 sm:p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <p className="flex items-center gap-2 font-extrabold text-stone-800">
+          <Sparkles className="h-5 w-5 text-terracota-600" /> Consultor de Reforma
+        </p>
+        <button onClick={() => setEstado('fechado')} className="rounded-full p-2 text-stone-400 hover:bg-white" aria-label="Fechar sugestões">
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+
+      {estado === 'carregando' ? (
+        <div className="flex flex-col items-center gap-2 py-8 text-stone-500">
+          <Loader2 className="h-7 w-7 animate-spin text-terracota-600" />
+          <p className="text-sm font-semibold">Pensando em ideias para {comodo.nome || 'o cômodo'}...</p>
+        </div>
+      ) : (
+        <>
+          {res?.erro && (
+            <p className="mb-3 flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+              <Info className="mt-0.5 h-4 w-4 shrink-0" /> {res.erro} Mostrando o assistente offline.
+            </p>
+          )}
+          {res?.fonte === 'local' && !res?.erro && !key && (
+            <p className="mb-3 flex items-start gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-stone-500 ring-1 ring-stone-100">
+              <Info className="mt-0.5 h-4 w-4 shrink-0" /> Assistente com boas práticas de arquitetura. Para sugestões personalizadas, configure a chave do Gemini na engrenagem ⚙️ da tela inicial.
+            </p>
+          )}
+          <ul className="space-y-2">
+            {res?.sugestoes.map((s, idx) => {
+              const Icon = CAT_ICON[s.categoria] || Lightbulb
+              return (
+                <li key={idx} className="rounded-2xl bg-white p-3 shadow-suave">
+                  <p className="font-bold leading-snug text-stone-800">{s.titulo}</p>
+                  <p className="mt-1 text-sm text-stone-600">{s.descricao}</p>
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-oliva-50 px-2 py-0.5 text-xs font-bold text-oliva-700">
+                        <Icon className="h-3.5 w-3.5" /> {s.categoria}
+                      </span>
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${PRIO_STYLE[s.prioridade]}`}>{s.prioridade}</span>
+                    </div>
+                    <button
+                      disabled={salvas[idx]}
+                      onClick={() => {
+                        onSalvar(s)
+                        setSalvas((m) => ({ ...m, [idx]: true }))
+                      }}
+                      className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-full px-3.5 text-sm font-bold transition active:scale-95 ${
+                        salvas[idx] ? 'bg-oliva-50 text-oliva-700' : 'bg-oliva-600 text-white hover:bg-oliva-700'
+                      }`}
+                    >
+                      {salvas[idx] ? <><Check className="h-4 w-4" /> Salva</> : <><Plus className="h-4 w-4" /> Salvar nas Nossas Ideias</>}
+                    </button>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+          <button onClick={gerar} className={`${btnSecondary} mt-3 w-full`}>
+            <RefreshCw className="h-4 w-4" /> Gerar outras sugestões
+          </button>
+          <p className="mt-2 text-center text-[11px] text-stone-400">
+            {res?.fonte === 'gemini' ? 'Gerado com Google Gemini' : 'Assistente offline do app'} · usa o nome, as notas e os itens a reformar/trocar
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ------------------------------------------------------------- Ideia
+
+function LinkCard({ ideia }) {
+  const loja = identificarLoja(ideia.link)
+  return (
+    <div className="mt-2.5 overflow-hidden rounded-2xl bg-creme ring-1 ring-stone-200">
+      <div className="flex items-center gap-3 p-3">
+        <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-stone-100">
+          {loja.host ? (
+            <img
+              src={`https://www.google.com/s2/favicons?domain=${loja.host}&sz=64`}
+              alt=""
+              className="h-6 w-6"
+              onError={(e) => (e.currentTarget.style.display = 'none')}
+            />
+          ) : (
+            <ShoppingBag className="h-5 w-5 text-stone-400" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-stone-400">{loja.nome}</p>
+          <p className="truncate text-sm font-bold text-stone-700">{ideia.titulo}</p>
+          {ideia.preco != null && <p className="text-sm font-extrabold text-oliva-700">≈ {formatarBRL(ideia.preco)}</p>}
+        </div>
+      </div>
+      <a
+        href={ideia.link}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex min-h-[44px] items-center justify-center gap-2 border-t border-stone-200 bg-white text-sm font-extrabold text-terracota-700 hover:bg-terracota-50"
+      >
+        <ExternalLink className="h-4 w-4" /> Abrir Link Externo
+      </a>
+    </div>
+  )
+}
+
+function IdeaItem({ ideia, onToggle, onApprove, onEdit, onDelete }) {
   const Icon = CAT_ICON[ideia.categoria] || Lightbulb
   return (
     <li className={`rounded-2xl p-3 ring-1 transition ${ideia.feita ? 'bg-stone-50 ring-stone-100' : 'bg-white ring-stone-200'}`}>
@@ -148,10 +295,11 @@ function IdeaItem({ ideia, onToggle, onEdit, onDelete }) {
         </button>
 
         <div className="min-w-0 flex-1">
-          <p className={`font-bold leading-snug ${ideia.feita ? 'text-stone-400 line-through' : 'text-stone-800'}`}>{ideia.titulo}</p>
-          {ideia.descricao && (
-            <p className={`mt-0.5 whitespace-pre-line text-sm ${ideia.feita ? 'text-stone-400' : 'text-stone-600'}`}>{ideia.descricao}</p>
-          )}
+          <p className={`font-bold leading-snug ${ideia.feita ? 'text-stone-400 line-through' : 'text-stone-800'}`}>
+            {ideia.titulo}
+            {ideia.origem === 'ia' && <Sparkles className="ml-1.5 inline h-3.5 w-3.5 text-terracota-500" aria-label="Sugestão da IA" />}
+          </p>
+          {ideia.descricao && <p className={`mt-0.5 whitespace-pre-line text-sm ${ideia.feita ? 'text-stone-400' : 'text-stone-600'}`}>{ideia.descricao}</p>}
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {ideia.categoria && (
               <span className="inline-flex items-center gap-1 rounded-full bg-oliva-50 px-2 py-0.5 text-xs font-bold text-oliva-700">
@@ -159,14 +307,10 @@ function IdeaItem({ ideia, onToggle, onEdit, onDelete }) {
               </span>
             )}
             {ideia.prioridade && (
-              <span className={`rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${PRIO_STYLE[ideia.prioridade] || PRIO_STYLE.Média}`}>
-                {ideia.prioridade}
-              </span>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${PRIO_STYLE[ideia.prioridade] || PRIO_STYLE.Média}`}>{ideia.prioridade}</span>
             )}
-            {ideia.link && (
-              <a href={ideia.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-xs font-bold text-sky-700 hover:bg-sky-100">
-                <ExternalLink className="h-3.5 w-3.5" /> Abrir link
-              </a>
+            {!ideia.link && ideia.preco != null && (
+              <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs font-bold text-stone-600">≈ {formatarBRL(ideia.preco)}</span>
             )}
           </div>
         </div>
@@ -180,6 +324,12 @@ function IdeaItem({ ideia, onToggle, onEdit, onDelete }) {
           </button>
         </div>
       </div>
+
+      {ideia.link && <LinkCard ideia={ideia} />}
+
+      <div className="mt-3">
+        <ApprovalButton aprovado={ideia.aprovado} onToggle={onApprove} />
+      </div>
     </li>
   )
 }
@@ -190,11 +340,19 @@ function IdeaForm({ inicial, onSave, onCancel }) {
   const [categoria, setCategoria] = useState(inicial?.categoria || 'Decoração')
   const [prioridade, setPrioridade] = useState(inicial?.prioridade || 'Média')
   const [link, setLink] = useState(inicial?.link || '')
+  const [preco, setPreco] = useState(valorParaInput(inicial?.preco))
 
   const salvar = (e) => {
     e.preventDefault()
     if (!titulo.trim()) return
-    onSave({ titulo: titulo.trim(), descricao: descricao.trim(), categoria, prioridade, link: normalizarLink(link) })
+    onSave({
+      titulo: titulo.trim(),
+      descricao: descricao.trim(),
+      categoria,
+      prioridade,
+      link: normalizarLink(link),
+      preco: parseValor(preco),
+    })
   }
 
   return (
@@ -241,7 +399,23 @@ function IdeaForm({ inicial, onSave, onCancel }) {
         </div>
       </div>
 
-      <input type="text" inputMode="url" autoCapitalize="none" className={inputCls} value={link} onChange={(e) => setLink(e.target.value)} placeholder="Link de referência (opcional)" />
+      <div>
+        <p className="mb-1.5 text-sm font-bold text-stone-700">Link da loja ou referência (opcional)</p>
+        <input
+          type="text"
+          inputMode="url"
+          autoCapitalize="none"
+          className={inputCls}
+          value={link}
+          onChange={(e) => setLink(e.target.value)}
+          placeholder="Cole aqui: Pinterest, Leroy Merlin, Tok&Stok..."
+        />
+      </div>
+
+      <div>
+        <p className="mb-1.5 text-sm font-bold text-stone-700">Preço estimado (opcional)</p>
+        <MoneyInput value={preco} onChange={setPreco} />
+      </div>
 
       <div className="grid grid-cols-2 gap-3 pt-1">
         <button type="button" className={btnSecondary} onClick={onCancel}>Cancelar</button>
