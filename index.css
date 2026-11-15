@@ -1,8 +1,0 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-html { -webkit-tap-highlight-color: transparent; }
-body { @apply bg-creme text-stone-800 antialiased; }
-.no-scrollbar::-webkit-scrollbar { display: none; }
-.no-scrollbar { scrollbar-width: none; }
