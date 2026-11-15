@@ -154,7 +154,7 @@ function SettingsModal({ open, onClose }) {
             </button>
           </div>
           <p className="mt-1.5 text-xs text-stone-400">
-            Fica salva só neste aparelho (cada celular configura a sua). Modelo usado: gemini-2.5-flash.
+            Fica salva só neste aparelho (cada celular configura a sua). Modelo usado: gemini-3.8-flash.
           </p>
         </div>
 
