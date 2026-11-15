@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react'
 import {
-  Lightbulb, Plus, Check, Pencil, Trash2, ExternalLink, X, Sparkles, Loader2, RefreshCw, ShoppingBag, Info,
+  Lightbulb, Plus, Check, Pencil, Trash2, ExternalLink, X, Sparkles, Loader2, RefreshCw, ShoppingBag, Info, Search, Palette, ImageOff,
   Paintbrush, Armchair, Lamp, Hammer, Flower2,
 } from 'lucide-react'
-import { SectionCard, ConfirmDialog, ApprovalButton, ApprovalFilter, passaAprovacao, inputCls, btnPrimary, btnSecondary } from './ui'
+import { SectionCard, ConfirmDialog, Modal, ApprovalButton, ApprovalFilter, passaAprovacao, inputCls, btnPrimary, btnSecondary } from './ui'
 import { MoneyInput } from './ItemsSection'
 import { uid, normalizarLink, formatarBRL, parseValor, valorParaInput, identificarLoja } from './utils'
-import { gerarSugestoes } from './ai'
+import { gerarSugestoes, gerarImagemIdeia, termoPadrao, linkPinterest, linkGoogleImagens } from './ai'
 import { useGeminiKey } from './settings.jsx'
 
 export const CATEGORIAS = [
@@ -132,6 +132,7 @@ export default function IdeasSection({ comodo, mutateArray }) {
             <IdeaItem
               key={i.id}
               ideia={i}
+              nomeComodo={comodo.nome}
               onToggle={() => alternar(i.id)}
               onApprove={() => alternarAprovacao(i.id)}
               onEdit={() => { setEditId(i.id); setFormOpen(false) }}
@@ -153,13 +154,25 @@ function AIAssistant({ comodo, onSalvar }) {
   const [estado, setEstado] = useState('fechado') // fechado | carregando | pronto
   const [res, setRes] = useState(null)
   const [salvas, setSalvas] = useState({})
+  const [imagens, setImagens] = useState({}) // idx -> { estado, src, msg }
 
   const gerar = async () => {
     setEstado('carregando')
     setSalvas({})
+    setImagens({})
     const r = await gerarSugestoes(comodo)
     setRes(r)
     setEstado('pronto')
+  }
+
+  const gerarImagem = async (idx, sugestao) => {
+    setImagens((m) => ({ ...m, [idx]: { estado: 'carregando' } }))
+    try {
+      const src = await gerarImagemIdeia(comodo, sugestao)
+      setImagens((m) => ({ ...m, [idx]: { estado: 'ok', src } }))
+    } catch (e) {
+      setImagens((m) => ({ ...m, [idx]: { estado: 'erro', msg: e.message } }))
+    }
   }
 
   if (estado === 'fechado') {
@@ -208,6 +221,12 @@ function AIAssistant({ comodo, onSalvar }) {
                 <li key={idx} className="rounded-2xl bg-white p-3 shadow-suave">
                   <p className="font-bold leading-snug text-stone-800">{s.titulo}</p>
                   <p className="mt-1 text-sm text-stone-600">{s.descricao}</p>
+                  <VisualTools
+                    termo={s.termo_busca_visual}
+                    imagem={imagens[idx]}
+                    temChave={!!key}
+                    onGerarImagem={() => gerarImagem(idx, s)}
+                  />
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap gap-1.5">
                       <span className="inline-flex items-center gap-1 rounded-full bg-oliva-50 px-2 py-0.5 text-xs font-bold text-oliva-700">
@@ -218,7 +237,8 @@ function AIAssistant({ comodo, onSalvar }) {
                     <button
                       disabled={salvas[idx]}
                       onClick={() => {
-                        onSalvar(s)
+                        const img = imagens[idx]?.estado === 'ok' ? imagens[idx].src : undefined
+                        onSalvar(img ? { ...s, imagem: img } : s)
                         setSalvas((m) => ({ ...m, [idx]: true }))
                       }}
                       className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-full px-3.5 text-sm font-bold transition active:scale-95 ${
@@ -238,6 +258,71 @@ function AIAssistant({ comodo, onSalvar }) {
           <p className="mt-2 text-center text-[11px] text-stone-400">
             {res?.fonte === 'gemini' ? 'Gerado com Google Gemini' : 'Assistente offline do app'} · usa o nome, as notas e os itens a reformar/trocar
           </p>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ------------------------------------------------------------- Busca visual + imagem da IA
+
+function BotaoBuscaVisual({ termo, compacto = false }) {
+  return (
+    <div className={`flex flex-wrap items-center gap-2 ${compacto ? '' : 'mt-3'}`}>
+      <a
+        href={linkPinterest(termo)}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex min-h-[38px] items-center gap-1.5 rounded-full bg-terracota-50 px-3.5 text-sm font-bold text-terracota-700 ring-1 ring-terracota-200 transition hover:bg-terracota-100 active:scale-95"
+      >
+        <Search className="h-4 w-4" /> Ver Inspirações Visuais
+      </a>
+      <a
+        href={linkGoogleImagens(termo)}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-xs font-bold text-stone-500 underline-offset-2 hover:underline"
+      >
+        ou no Google Imagens
+      </a>
+    </div>
+  )
+}
+
+function VisualTools({ termo, imagem, temChave, onGerarImagem }) {
+  return (
+    <div>
+      <BotaoBuscaVisual termo={termo} />
+
+      {imagem?.estado === 'ok' ? (
+        <div className="mt-3 overflow-hidden rounded-xl bg-stone-100">
+          <img src={imagem.src} alt="Exemplo visual gerado pela IA" className="aspect-[4/3] w-full object-cover" />
+          <p className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-stone-500">
+            <Sparkles className="h-3 w-3" /> Imagem ilustrativa gerada por IA
+          </p>
+        </div>
+      ) : imagem?.estado === 'carregando' ? (
+        <div className="mt-3 flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-oliva-50 to-terracota-50 text-stone-500">
+          <Loader2 className="h-7 w-7 animate-spin text-terracota-600" />
+          <p className="text-sm font-semibold">Desenhando a ideia... (pode levar uns segundos)</p>
+        </div>
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={onGerarImagem}
+            disabled={!temChave}
+            className="mt-2 inline-flex min-h-[38px] items-center gap-1.5 rounded-full bg-white px-3.5 text-sm font-bold text-oliva-700 ring-1 ring-oliva-200 transition hover:bg-oliva-50 active:scale-95 disabled:opacity-50"
+          >
+            <Palette className="h-4 w-4" /> {imagem?.estado === 'erro' ? 'Tentar gerar de novo' : 'Gerar Exemplo Visual (IA)'}
+          </button>
+          {!temChave && <p className="mt-1 text-xs text-stone-400">Para gerar imagens, configure a chave do Gemini na engrenagem ⚙️.</p>}
+          {imagem?.estado === 'erro' && (
+            <p className="mt-2 flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+              <ImageOff className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{imagem.msg} Enquanto isso, toque em <b>"Ver Inspirações Visuais"</b> para ver fotos reais dessa ideia 😉</span>
+            </p>
+          )}
         </>
       )}
     </div>
@@ -281,8 +366,10 @@ function LinkCard({ ideia }) {
   )
 }
 
-function IdeaItem({ ideia, onToggle, onApprove, onEdit, onDelete }) {
+function IdeaItem({ ideia, nomeComodo, onToggle, onApprove, onEdit, onDelete }) {
   const Icon = CAT_ICON[ideia.categoria] || Lightbulb
+  const [ampliar, setAmpliar] = useState(false)
+  const termo = ideia.termo_busca_visual || termoPadrao(nomeComodo, ideia.titulo)
   return (
     <li className={`rounded-2xl p-3 ring-1 transition ${ideia.feita ? 'bg-stone-50 ring-stone-100' : 'bg-white ring-stone-200'}`}>
       <div className="flex gap-3">
@@ -325,11 +412,25 @@ function IdeaItem({ ideia, onToggle, onApprove, onEdit, onDelete }) {
         </div>
       </div>
 
+      {ideia.imagem && (
+        <button onClick={() => setAmpliar(true)} className="mt-2.5 block w-full overflow-hidden rounded-xl bg-stone-100">
+          <img src={ideia.imagem} alt={`Exemplo visual: ${ideia.titulo}`} loading="lazy" className="aspect-[4/3] w-full object-cover" />
+        </button>
+      )}
+
       {ideia.link && <LinkCard ideia={ideia} />}
 
-      <div className="mt-3">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
         <ApprovalButton aprovado={ideia.aprovado} onToggle={onApprove} />
+        <BotaoBuscaVisual termo={termo} compacto />
       </div>
+
+      <Modal open={ampliar} onClose={() => setAmpliar(false)} title={ideia.titulo} wide dark>
+        <img src={ideia.imagem} alt={ideia.titulo} className="mx-auto max-h-[70vh] w-auto rounded-2xl object-contain" />
+        <p className="mt-3 flex items-center gap-1.5 text-xs text-white/60">
+          <Sparkles className="h-3.5 w-3.5" /> Imagem ilustrativa gerada por IA
+        </p>
+      </Modal>
     </li>
   )
 }

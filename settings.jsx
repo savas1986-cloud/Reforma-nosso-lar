@@ -2,6 +2,12 @@ import { useEffect, useState } from 'react'
 import { Settings, KeyRound, Eye, EyeOff, ExternalLink, Check, Loader2, AlertTriangle, Sparkles } from 'lucide-react'
 import { Modal, inputCls, btnPrimary, btnSecondary } from './ui'
 
+// Modelos do Google Gemini usados pelo app (troque aqui se o Google lançar versões novas)
+export const MODELO_TEXTO = 'gemini-3.8-flash'
+// Tentados em ordem: o Lite é o mais barato/rápido; o segundo é reserva
+export const MODELOS_IMAGEM = ['gemini-3.1-flash-lite-image', 'gemini-3.1-flash-image']
+export const urlGemini = (modelo) => `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`
+
 const STORAGE_KEY = 'nossa-reforma:gemini-key'
 const EVENTO = 'nossa-reforma:gemini-key-changed'
 
@@ -39,12 +45,12 @@ export function useGeminiKey() {
 
 /** Testa a chave com uma chamada mínima ao Gemini */
 async function testarChave(key) {
-  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent', {
+  const res = await fetch(urlGemini(MODELO_TEXTO), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: 'Responda apenas: OK' }] }],
-      generationConfig: { maxOutputTokens: 5, thinkingConfig: { thinkingBudget: 0 } },
+      generationConfig: { maxOutputTokens: 50 },
     }),
   })
   if (!res.ok) {
@@ -154,7 +160,7 @@ function SettingsModal({ open, onClose }) {
             </button>
           </div>
           <p className="mt-1.5 text-xs text-stone-400">
-            Fica salva só neste aparelho (cada celular configura a sua). Modelo usado: gemini-3.8-flash.
+            Fica salva só neste aparelho (cada celular configura a sua). Modelos: {MODELO_TEXTO} (ideias) e {MODELOS_IMAGEM[0]} (imagens).
           </p>
         </div>
 

@@ -1,4 +1,5 @@
-import { getGeminiKey } from './settings.jsx'
+import { getGeminiKey, MODELO_TEXTO, MODELOS_IMAGEM, urlGemini } from './settings.jsx'
+import { compressDataUrl } from './image'
 
 export const CATEGORIAS_IA = ['Pintura', 'Móveis', 'Iluminação', 'Estrutura', 'Decoração']
 const PRIORIDADES_IA = ['Alta', 'Média', 'Baixa']
@@ -55,9 +56,10 @@ Para cada ideia:
 - "descricao": 1 a 3 frases práticas (como executar, materiais, cores, medidas ou temperatura de luz sugeridas)
 - "categoria": uma de Pintura, Móveis, Iluminação, Estrutura, Decoração
 - "prioridade": Alta, Média ou Baixa
+- "termo_busca_visual": frase curta (4 a 7 palavras, sem pontuação) em português, otimizada para buscar fotos dessa ideia no Pinterest/Google Imagens. Ex.: "sala estar sofa cinza iluminacao quente"
 Responda em português do Brasil.`
 
-  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent', {
+  const res = await fetch(urlGemini(MODELO_TEXTO), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
     body: JSON.stringify({
@@ -74,11 +76,11 @@ Responda em português do Brasil.`
               descricao: { type: 'STRING' },
               categoria: { type: 'STRING', enum: CATEGORIAS_IA },
               prioridade: { type: 'STRING', enum: PRIORIDADES_IA },
+              termo_busca_visual: { type: 'STRING' },
             },
-            required: ['titulo', 'descricao', 'categoria', 'prioridade'],
+            required: ['titulo', 'descricao', 'categoria', 'prioridade', 'termo_busca_visual'],
           },
         },
-        thinkingConfig: { thinkingBudget: 0 },
       },
     }),
   })
@@ -105,7 +107,79 @@ Responda em português do Brasil.`
     descricao: String(s.descricao || ''),
     categoria: CATEGORIAS_IA.includes(s.categoria) ? s.categoria : 'Decoração',
     prioridade: PRIORIDADES_IA.includes(s.prioridade) ? s.prioridade : 'Média',
+    termo_busca_visual: String(s.termo_busca_visual || '').trim() || termoPadrao(comodo.nome, s.titulo),
   }))
+}
+
+// ---------------------------------------------------------------- Busca visual (grátis)
+
+const STOP = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'a', 'o', 'as', 'os', 'com', 'para', 'em', 'no', 'na', 'um', 'uma', 'sem', 'ao', 'ou'])
+
+/** Monta um termo de busca a partir do cômodo + título (usado no assistente offline) */
+export function termoPadrao(nomeComodo = '', titulo = '') {
+  const palavras = semAcento(`${nomeComodo} ${titulo}`)
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w && !STOP.has(w))
+  return [...new Set(palavras)].slice(0, 7).join(' ') + ' decoracao'
+}
+
+export const linkPinterest = (termo) => `https://br.pinterest.com/search/pins/?q=${encodeURIComponent(termo)}`
+export const linkGoogleImagens = (termo) => `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(termo)}`
+
+// ---------------------------------------------------------------- Imagem gerada pela IA
+
+export class ErroImagem extends Error {}
+
+/**
+ * Gera uma imagem ilustrando a sugestão com a API de imagem do Gemini (Nano Banana)
+ * e devolve já comprimida (JPEG ≤800px, via Canvas).
+ */
+export async function gerarImagemIdeia(comodo, sugestao) {
+  const key = getGeminiKey()
+  if (!key) throw new ErroImagem('Configure a chave do Gemini na engrenagem ⚙️ para gerar imagens.')
+
+  const prompt = `Fotografia realista de interiores, estilo revista de decoração brasileira, enquadramento horizontal amplo (proporção 4:3).
+Ambiente: ${comodo.nome || 'cômodo'} de uma casa brasileira.
+Ideia aplicada no ambiente: ${sugestao.titulo}. ${sugestao.descricao || ''}
+Luz natural agradável, cores harmoniosas, aspecto acolhedor e possível de executar numa reforma real.
+Sem pessoas, sem texto, sem logotipos.`
+
+  let ultimoStatus = 0
+  for (const modelo of MODELOS_IMAGEM) {
+    let res
+    try {
+      res = await fetch(urlGemini(modelo), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        }),
+      })
+    } catch {
+      throw new ErroImagem('Sem conexão para gerar a imagem agora.')
+    }
+
+    if (res.ok) {
+      const data = await res.json()
+      const parts = data?.candidates?.[0]?.content?.parts || []
+      const img = parts.map((p) => p.inlineData || p.inline_data).find((d) => d?.data)
+      if (!img) throw new ErroImagem('A IA não conseguiu desenhar esta ideia. Tente de novo ou use a busca visual.')
+      const mime = img.mimeType || img.mime_type || 'image/png'
+      return compressDataUrl(`data:${mime};base64,${img.data}`, 800, 0.7)
+    }
+
+    ultimoStatus = res.status
+    // modelo inexistente, sem cota ou não liberado: tenta o próximo da lista
+    if ([400, 403, 404, 429].includes(res.status)) continue
+    break
+  }
+
+  if (ultimoStatus === 429) {
+    throw new ErroImagem('O limite gratuito de geração de imagens foi atingido por hoje.')
+  }
+  throw new ErroImagem('A geração de imagens não está liberada para esta chave do Gemini (pode exigir faturamento ativo no Google AI Studio).')
 }
 
 // ---------------------------------------------------------------- Assistente local
@@ -247,5 +321,5 @@ export function sugestoesLocais(comodo, evitar = []) {
   embaralhar(BASE[tipoDoComodo(comodo.nome)]).forEach(add)
   embaralhar(BASE.generico).forEach(add)
 
-  return resultado
+  return resultado.map((r) => ({ ...r, termo_busca_visual: termoPadrao(comodo.nome, r.titulo) }))
 }
